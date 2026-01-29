@@ -1,0 +1,26 @@
+# DigitalOcean App Platform Spec
+name: aml-graph-system
+services:
+- name: api
+  dockerfile_path: Dockerfile
+  github:
+    repo: your-username/aml-graph-system
+    branch: main
+    deploy_on_push: true
+  http_port: 8000
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  routes:
+  - path: /
+  health_check:
+    http_path: /docs
+  envs:
+  - key: NEO4J_URI
+    value: ${NEO4J_URI}
+    type: SECRET
+  - key: NEO4J_USER
+    value: ${NEO4J_USER}
+    type: SECRET
+  - key: NEO4J_PASSWORD
+    value: ${NEO4J_PASSWORD}
+    type: SECRET
