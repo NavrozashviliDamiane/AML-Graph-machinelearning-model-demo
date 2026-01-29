@@ -120,6 +120,206 @@ def get_normal_samples(limit: int = 5):
     
     return {"transactions": transactions, "count": len(transactions)}
 
+@app.get("/graph/network")
+def get_network_graph(limit: int = 50):
+    """
+    Get graph network data for visualization.
+    Returns nodes (accounts) and edges (transfers) in a format suitable for graph visualization libraries.
+    """
+    query = """
+    MATCH (src:Account)-[t:TRANSFER]->(dst:Account)
+    WHERE src.pagerank IS NOT NULL AND dst.pagerank IS NOT NULL
+    RETURN src.id AS source,
+           dst.id AS target,
+           t.amount AS amount,
+           t.isFraud AS isFraud,
+           src.pagerank AS src_pagerank,
+           src.degree AS src_degree,
+           dst.pagerank AS dst_pagerank,
+           dst.degree AS dst_degree
+    ORDER BY t.amount DESC
+    LIMIT $limit
+    """
+    
+    with driver.session() as session:
+        result = session.run(query, limit=limit)
+        edges = []
+        nodes_dict = {}
+        
+        for record in result:
+            # Add edge
+            edges.append({
+                "source": record["source"],
+                "target": record["target"],
+                "amount": record["amount"],
+                "isFraud": record["isFraud"]
+            })
+            
+            # Add source node
+            if record["source"] not in nodes_dict:
+                nodes_dict[record["source"]] = {
+                    "id": record["source"],
+                    "pagerank": record["src_pagerank"],
+                    "degree": record["src_degree"],
+                    "type": "account"
+                }
+            
+            # Add target node
+            if record["target"] not in nodes_dict:
+                nodes_dict[record["target"]] = {
+                    "id": record["target"],
+                    "pagerank": record["dst_pagerank"],
+                    "degree": record["dst_degree"],
+                    "type": "account"
+                }
+        
+        nodes = list(nodes_dict.values())
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "count": {
+            "nodes": len(nodes),
+            "edges": len(edges)
+        }
+    }
+
+@app.get("/graph/account/{account_id}")
+def get_account_subgraph(account_id: str, depth: int = 1, limit: int = 20):
+    """
+    Get subgraph around a specific account.
+    Shows the account's immediate connections (depth=1) or extended network (depth=2).
+    """
+    query = """
+    MATCH path = (center:Account {id: $account_id})-[t:TRANSFER*1..$depth]-(connected:Account)
+    WHERE center.pagerank IS NOT NULL
+    WITH center, connected, relationships(path) as rels
+    LIMIT $limit
+    RETURN center.id AS center_id,
+           center.pagerank AS center_pagerank,
+           center.degree AS center_degree,
+           center.betweenness AS center_betweenness,
+           connected.id AS connected_id,
+           connected.pagerank AS connected_pagerank,
+           connected.degree AS connected_degree,
+           [r in rels | {amount: r.amount, isFraud: r.isFraud}] AS transfers
+    """
+    
+    with driver.session() as session:
+        result = session.run(query, account_id=account_id, depth=depth, limit=limit)
+        
+        nodes_dict = {}
+        edges = []
+        
+        for record in result:
+            # Add center node
+            center_id = record["center_id"]
+            if center_id not in nodes_dict:
+                nodes_dict[center_id] = {
+                    "id": center_id,
+                    "pagerank": record["center_pagerank"],
+                    "degree": record["center_degree"],
+                    "betweenness": record["center_betweenness"],
+                    "type": "center"
+                }
+            
+            # Add connected node
+            connected_id = record["connected_id"]
+            if connected_id not in nodes_dict:
+                nodes_dict[connected_id] = {
+                    "id": connected_id,
+                    "pagerank": record["connected_pagerank"],
+                    "degree": record["connected_degree"],
+                    "type": "connected"
+                }
+            
+            # Add edges from transfers
+            for transfer in record["transfers"]:
+                edges.append({
+                    "source": center_id,
+                    "target": connected_id,
+                    "amount": transfer["amount"],
+                    "isFraud": transfer["isFraud"]
+                })
+        
+        nodes = list(nodes_dict.values())
+    
+    return {
+        "center_account": account_id,
+        "nodes": nodes,
+        "edges": edges,
+        "count": {
+            "nodes": len(nodes),
+            "edges": len(edges)
+        }
+    }
+
+@app.get("/graph/fraud-network")
+def get_fraud_network(limit: int = 30):
+    """
+    Get network of fraud transactions for visualization.
+    Shows only fraudulent transfers and involved accounts.
+    """
+    query = """
+    MATCH (src:Account)-[t:TRANSFER]->(dst:Account)
+    WHERE t.isFraud = 1 AND src.pagerank IS NOT NULL AND dst.pagerank IS NOT NULL
+    RETURN src.id AS source,
+           dst.id AS target,
+           t.amount AS amount,
+           src.pagerank AS src_pagerank,
+           src.degree AS src_degree,
+           src.betweenness AS src_betweenness,
+           dst.pagerank AS dst_pagerank,
+           dst.degree AS dst_degree,
+           dst.betweenness AS dst_betweenness
+    LIMIT $limit
+    """
+    
+    with driver.session() as session:
+        result = session.run(query, limit=limit)
+        edges = []
+        nodes_dict = {}
+        
+        for record in result:
+            # Add edge
+            edges.append({
+                "source": record["source"],
+                "target": record["target"],
+                "amount": record["amount"],
+                "isFraud": 1
+            })
+            
+            # Add source node
+            if record["source"] not in nodes_dict:
+                nodes_dict[record["source"]] = {
+                    "id": record["source"],
+                    "pagerank": record["src_pagerank"],
+                    "degree": record["src_degree"],
+                    "betweenness": record["src_betweenness"],
+                    "type": "fraud_account"
+                }
+            
+            # Add target node
+            if record["target"] not in nodes_dict:
+                nodes_dict[record["target"]] = {
+                    "id": record["target"],
+                    "pagerank": record["dst_pagerank"],
+                    "degree": record["dst_degree"],
+                    "betweenness": record["dst_betweenness"],
+                    "type": "fraud_account"
+                }
+        
+        nodes = list(nodes_dict.values())
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "count": {
+            "nodes": len(nodes),
+            "edges": len(edges)
+        }
+    }
+
 @app.get("/health")
 def health_check():
     """
