@@ -1,10 +1,20 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.schemas import Transaction
 from app.model_loader import model
 from app.feature_builder import get_graph_features, driver
 import numpy as np
 
 app = FastAPI(title="AML Graph System", description="Real-time fraud detection using graph features")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (for development/demo)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 @app.post("/score")
 def score_transaction(tx: Transaction):
