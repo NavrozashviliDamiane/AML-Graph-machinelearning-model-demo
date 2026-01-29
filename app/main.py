@@ -190,8 +190,12 @@ def get_account_subgraph(account_id: str, depth: int = 1, limit: int = 20):
     Get subgraph around a specific account.
     Shows the account's immediate connections (depth=1) or extended network (depth=2).
     """
-    query = """
-    MATCH path = (center:Account {id: $account_id})-[t:TRANSFER*1..$depth]-(connected:Account)
+    # Validate depth parameter
+    depth = max(1, min(depth, 3))  # Limit depth to 1-3
+    
+    # Build query with depth as literal value (Neo4j doesn't allow parameters in variable-length patterns)
+    query = f"""
+    MATCH path = (center:Account {{id: $account_id}})-[t:TRANSFER*1..{depth}]-(connected:Account)
     WHERE center.pagerank IS NOT NULL
     WITH center, connected, relationships(path) as rels
     LIMIT $limit
@@ -202,11 +206,11 @@ def get_account_subgraph(account_id: str, depth: int = 1, limit: int = 20):
            connected.id AS connected_id,
            connected.pagerank AS connected_pagerank,
            connected.degree AS connected_degree,
-           [r in rels | {amount: r.amount, isFraud: r.isFraud}] AS transfers
+           [r in rels | {{amount: r.amount, isFraud: r.isFraud}}] AS transfers
     """
     
     with driver.session() as session:
-        result = session.run(query, account_id=account_id, depth=depth, limit=limit)
+        result = session.run(query, account_id=account_id, limit=limit)
         
         nodes_dict = {}
         edges = []
